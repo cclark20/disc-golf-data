@@ -1,5 +1,5 @@
 # pdga-scraper
-Scripts to scrape pdga and udisc live
+Scripts to get data from pdga and udisc live
 
 ## Setup
 ```
