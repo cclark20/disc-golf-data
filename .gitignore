@@ -127,6 +127,7 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
-chromedriver
+
+# custom
 data
 client_secret.json
