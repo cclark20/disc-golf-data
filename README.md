@@ -1,8 +1,10 @@
-# pdga-scraper
+# disc-golf-data
 Scripts to get data from pdga and udisc live
 
 ## Setup
 ```
+git clone https://github.com/cclark20/disc-golf-data.git
+cd disc-golf-data
 pip install -r requirements.txt
 ```
 
