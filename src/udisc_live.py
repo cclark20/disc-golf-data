@@ -63,6 +63,36 @@ def get_udisc_html(udisc_id: str = 'usdgc2022', round: int = 1):
   soup = BeautifulSoup(html, 'html.parser')
   return soup
 
+def get_registered_players(soup) -> pd.DataFrame:
+  # <div style="display: inline-block; padding: 5px; text-align: left;">Paul McBeth</div>
+  # <div style="display: inline-block; padding: 5px; text-align: left;">Paul McBeth</div>
+  # <div style="display: inline-block; padding: 5px; text-align: left;">Billy Engel</div>
+  # <div style="display: inline-flex; align-items: center; text-align: center; width: 260px; font-size: 20px; justify-content: flex-start; margin-bottom: 15px;"><a href="/players/paulmcbeth" style="display: flex; align-items: center;"><div style="width: 30px; height: 30px; color: rgb(255, 255, 255); display: inline-block; text-align: center; line-height: 40px; font-size: 24px; border-radius: 50%; left: 0px; user-select: none; background-image: url(&quot;https://dcaz3d51ftzmw.cloudfront.net/players/PaulMcBeth-Profile4.jpg&quot;); background-clip: border-box; background-size: contain; background-repeat: no-repeat; background-position: 50% 50%; flex-shrink: 0; margin-right: 5px;"></div><div style="display: inline-block; padding: 5px; text-align: left;">Paul McBeth</div></a></div>
+  #             display: inline-flex; align-items: center; text-align: center; width: 260px; font-size: 20px; justify-content: flex-start; margin-bottom: 15px
+  divs = soup.find_all(
+    'div',
+    attrs={
+      'style': 'display: inline-flex; align-items: center; text-align: center; width: 260px; font-size: 20px; justify-content: flex-start; margin-bottom: 15px;'
+    })
+  # get registered players in events_result format
+  names = [div.get_text() for div in divs]
+
+  # create df exactly as rest of script will expect, even though will be empty
+  df = pd.DataFrame({
+    'name': names,
+    'place': None,
+    'total': None,
+    'round_score': None,
+    'aces': None,
+    'eagles+': None,
+    'birdies':None,
+    'pars':None,
+    'bogeys':None,
+    'doubles+':None
+  })
+
+  return df
+
 def get_round_table(soup) -> pd.DataFrame:
   divs = soup.find_all(
     'div',
@@ -78,6 +108,10 @@ def get_round_table(soup) -> pd.DataFrame:
     })
   divs = divs + divs2
 
+  # stop if tournamnet hasnt started
+  if not divs:
+    raise Exception('tournament has not started')
+  
   # generate table
   ## initiate lists for data
   names = []
@@ -143,18 +177,32 @@ def compute_scores(row, pars):
 
 def run(event_id: str, n_rounds: int, save:bool=True):
   dfs = []
+  print(f'getting {event_id}...')
   for round in range(1, n_rounds + 1):
-    print(f'getting round: {round}')
     html = get_udisc_html(event_id, round)
-    round_results = get_round_table(html)
-    round_pars = get_round_pars(html)
-    tallies = round_results.apply(compute_scores, axis=1, pars=round_pars)
-    tallies['round'] = round
-    tallies['tournament'] = event_id
-    print(tallies)
-    dfs.append(tallies)
+
+    # try to get round scores, custom exception will send to except, if tournamnet hasn't started
+    try:
+      round_results = get_round_table(html)
+      print(f'getting round: {round}')
+      round_pars = get_round_pars(html)
+      tallies = round_results.apply(compute_scores, axis=1, pars=round_pars)
+      tallies['round'] = round
+      tallies['tournament'] = event_id
+      print(tallies)
+      dfs.append(tallies)
+    except:
+      print('getting registered players')
+      reg_players = get_registered_players(html)
+      if len(reg_players) == 0:
+        print('registration not open')
+      
+      reg_players['tournament']=event_id
+      dfs.append(reg_players)
+      print(reg_players)
+      break
+
   tournament_df = pd.concat(dfs)
-  
   totals = tournament_df.groupby(['name', 'tournament']).agg({
     'aces': 'sum',
     'eagles+': 'sum',

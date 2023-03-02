@@ -181,7 +181,7 @@ def run(min_rating:int=990, save=False):
     
     # calculate cost using exponential decay
     final['cur_price'] = cost.calc_cost(final['cur_udisc_index'].fillna(0), decay_rate=0.0175)
-    final['cur_price'] = final['cur_price'].astype(int)
+    final['cur_price'] = final['cur_price'].astype(int).clip(lower=5)
     
     if save:
         print("sending to your data/ folder")
