@@ -36,7 +36,7 @@ def get_udisc_name(name: str) -> str:
         udisc_name = soup.select('h1')[0].text # the name is the only h1 element
         return udisc_name
     except IndexError as e:
-        print(f"{name}: {e}")
+        print(f"\n{name}: {e}")
         return name
 
 def generate_player_list(min_rating: int) -> pd.DataFrame:
@@ -74,10 +74,27 @@ def generate_player_list(min_rating: int) -> pd.DataFrame:
 
     # formatting
     pdga = pdga.drop(columns = ['Class','City','State/Prov','Membership Status'])
-    pdga['Name'] = pdga['Name'].apply(unidecode.unidecode)
     pdga.columns = pdga.columns.str.lower()
     pdga.rename(columns={"pdga #": 'pdga_no'}, inplace=True)
     pdga.rename(columns={"rating": 'cur_rating'}, inplace=True)
+
+    # manual changes
+    pdga['name'] = pdga['name'].replace(
+        {
+        'Benjamin Callaway': 'Ben Callaway',
+        'Jason Hebenheimer': 'Jake Hebenheimer',
+        'Benjamin Stemen': 'Ben Stemen',
+        'Steven Rico': 'Steve Rico',
+        'Bartosz Kowalewski': 'Bart Kowalewski',
+        'G.T. Hancock': 'GT Hancock',
+        'Daniel Brooks-Wells': 'Dan Brooks-Wells',
+        'John Willis II': 'John Willis',
+        'DW Hass': 'D.W. Hass',
+        ' Ⓗ': ''
+        },
+        regex=True
+    )
+
 
     # get udisc_name for later joins
     tic = datetime.now()
@@ -85,10 +102,14 @@ def generate_player_list(min_rating: int) -> pd.DataFrame:
     for i in tqdm(range(len(pdga))):
         udisc_name = get_udisc_name(pdga['name'][i])
         pdga.loc[i, 'udisc_name'] = udisc_name
+        pdga.to_csv(f"{data_dir}/pdga_{year}_{min_rating}.csv", index=False)
     toc = datetime.now()
     print(f'end: {toc}')
     diff = toc - tic
     print(f'Time elapsed: {diff}')
+
+    pdga['name'] = pdga['name'].apply(unidecode.unidecode)
+    pdga['udisc_name'] = pdga['udisc_name'].apply(unidecode.unidecode)
 
     return pdga
 
@@ -139,12 +160,13 @@ def generate_udisc_rankings():
 # join
 def merge_dfs(prev_year, pdga, udisc):
     pdga_merged = prev_year.merge(pdga, on=['pdga_no'], how='left')
-    pdga_merged = pdga_merged.rename(columns={'name_x': 'name'})
-    
-    total = pdga_merged.merge(udisc, left_on="udisc_name", right_on='name', how='left')
-    total = total.sort_values(by=['udisc_rank', 'pdga_rank', 'pdga_no'])
+    pdga_merged = pdga_merged.rename(columns={'name_x': 'name'}).drop(columns='name_y')
 
-    cols = ["udisc_name","pdga_no","cur_rating","udisc_rank","udisc_index","pdga_rank","avg_elite_finish","podiums_count","topten_count"]
+    total = pdga_merged.merge(udisc, left_on="udisc_name", right_on='name', how='outer') # we want the non matches from udisc
+    total['udisc_name']=total['udisc_name'].fillna(total['name_y']) # move udisc names to our name column
+    total = total.sort_values(by=['udisc_rank', 'pdga_rank', 'cur_rating', 'pdga_no'], ascending=[True, True, False, True])
+
+    cols = ["udisc_name","pdga_no","cur_rating","udisc_rank","udisc_index","pdga_rank","events_rating","avg_elite_finish","podiums_count","topten_count"]
     final_df = total[cols]
 
     return final_df
