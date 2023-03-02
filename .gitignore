@@ -129,3 +129,4 @@ dmypy.json
 .pyre/
 chromedriver
 data
+client_secret.json

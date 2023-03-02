@@ -1,17 +1,22 @@
-import os
-import sys
 import requests
 import pandas as pd
 import unidecode
 from bs4 import BeautifulSoup
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+chrome_options = Options()
+chrome_options.add_argument('--no-sandbox')
+chrome_options.add_argument('--disable-dev-shm-usage')
+chrome_options.add_argument("--window-size=835,3822")
+
 import time
 from datetime import datetime
 from tqdm import tqdm
 pd.options.mode.chained_assignment = None  # default='warn'
 
-def get_udisc_name(name: str) -> str:
+from src import cost
+
+def get_udisc_stats(name: str) -> str:
     '''
     input is name as it is in column
     function opens the players udisc profile (if they have one) and returns the name udsic gives them.
@@ -25,8 +30,7 @@ def get_udisc_name(name: str) -> str:
     '''
     lname = ''.join(name.split()).lower()
     URL = f"https://udisclive.com/players/{lname}"
-    service = Service('./chromedriver')
-    driver = webdriver.Chrome(service=service)
+    driver = webdriver.Chrome(options=chrome_options)
     driver.get(URL)
     time.sleep(5)
     html = driver.page_source
@@ -44,6 +48,7 @@ def generate_player_list(min_rating: int) -> pd.DataFrame:
     pdga = pd.DataFrame(columns = ['Name', 'PDGA #', 'Rating', 'Class', 'City', 'State/Prov', 'Country', 'Membership Status'])
 
     tic = datetime.now()
+    print(f'\ngetting all players above {min_rating}')
     print(f'start: {tic}')
     page_num = 0
     while True:
@@ -79,14 +84,18 @@ def generate_player_list(min_rating: int) -> pd.DataFrame:
     pdga.rename(columns={"rating": 'cur_rating'}, inplace=True)
 
     # manual changes
-    pdga['name'] = pdga['name'].replace(
+    pdga['udisc_name'] = pdga['name'].replace(
         {
+        'Richard Wysocki': 'Ricky Wysocki',
+        'Nathan Sexton': 'Nate Sexton',
         'Benjamin Callaway': 'Ben Callaway',
         'Jason Hebenheimer': 'Jake Hebenheimer',
+        'Kevin Kiefer III': 'Kevin Kiefer',
         'Benjamin Stemen': 'Ben Stemen',
         'Steven Rico': 'Steve Rico',
-        'Bartosz Kowalewski': 'Bart Kowalewski',
+        # 'Bartosz Kowalewski': 'Bart Kowalewski',
         'G.T. Hancock': 'GT Hancock',
+        'Matt Thompson': 'Matthew Thompson',
         'Daniel Brooks-Wells': 'Dan Brooks-Wells',
         'John Willis II': 'John Willis',
         'DW Hass': 'D.W. Hass',
@@ -94,19 +103,6 @@ def generate_player_list(min_rating: int) -> pd.DataFrame:
         },
         regex=True
     )
-
-
-    # get udisc_name for later joins
-    tic = datetime.now()
-    print(f'start: {tic}')
-    for i in tqdm(range(len(pdga))):
-        udisc_name = get_udisc_name(pdga['name'][i])
-        pdga.loc[i, 'udisc_name'] = udisc_name
-        pdga.to_csv(f"{data_dir}/pdga_{year}_{min_rating}.csv", index=False)
-    toc = datetime.now()
-    print(f'end: {toc}')
-    diff = toc - tic
-    print(f'Time elapsed: {diff}')
 
     pdga['name'] = pdga['name'].apply(unidecode.unidecode)
     pdga['udisc_name'] = pdga['udisc_name'].apply(unidecode.unidecode)
@@ -124,7 +120,7 @@ def generate_pdga_rankings():
 
     # formatting
     players.columns= players.columns.str.lower()
-    players['pdga_rank'] = players['#'].str.split().str[0].astype(int)
+    players['cur_pdga_rank'] = players['#'].str.split().str[0].astype(int)
     players['pdga_no'] = players['player'].str.split('#').str[-1].astype(int)
     players['name'] = players['player'].str.split('.').str[0].str[:-2]
     players['name'] = players['name'].apply(unidecode.unidecode)
@@ -134,7 +130,7 @@ def generate_pdga_rankings():
     players['podiums_count'] = players['podium'].str.split(" ").str[1].replace('·', 0).astype(int)
     players['topten_count'] = players['top 10'].str.split(" ").str[1].replace('·', 0).astype(int)
 
-    colnames = ["pdga_no", "name", 'pdga_rank', "events_rating", "avg_elite_finish", "wins_count", "podiums_count", "topten_count"]
+    colnames = ["pdga_no", "name", 'cur_pdga_rank', "events_rating", "avg_elite_finish", "wins_count", "podiums_count", "topten_count"]
     players = players[colnames]
     return players
 
@@ -149,45 +145,31 @@ def generate_udisc_rankings():
     # formatting
     udisc.columns = udisc.columns.str.lower()
     udisc.rename(columns={"dominance index": "udisc_index", "playerclick rows to compare players": "name"}, inplace=True)
-    udisc['udisc_rank'] = udisc['#'].str.split(' ').str[0].str.extract('(\d+)', expand=False).astype(int)
-    udisc['udisc_index'] = udisc['udisc_index'].str.split(' ').str[0].astype(float)
+    udisc['cur_udisc_rank'] = udisc['#'].str.split(' ').str[0].str.extract('(\d+)', expand=False).astype(int)
+    udisc['cur_udisc_index'] = udisc['udisc_index'].str.split(' ').str[0].astype(float)
     udisc['name'] = udisc['name'].apply(unidecode.unidecode)
 
-    colnames = ['name', 'udisc_index', 'udisc_rank']
+    colnames = ['name', 'cur_udisc_index', 'cur_udisc_rank']
     udisc = udisc[colnames]
     return udisc
 
 # join
-def merge_dfs(prev_year, pdga, udisc):
-    pdga_merged = prev_year.merge(pdga, on=['pdga_no'], how='left')
+def merge_dfs(current, pdga, udisc):
+    pdga_merged = current.merge(pdga, on=['pdga_no'], how='left')
     pdga_merged = pdga_merged.rename(columns={'name_x': 'name'}).drop(columns='name_y')
 
     total = pdga_merged.merge(udisc, left_on="udisc_name", right_on='name', how='outer') # we want the non matches from udisc
     total['udisc_name']=total['udisc_name'].fillna(total['name_y']) # move udisc names to our name column
-    total = total.sort_values(by=['udisc_rank', 'pdga_rank', 'cur_rating', 'pdga_no'], ascending=[True, True, False, True])
+    total = total.sort_values(by=['cur_udisc_rank', 'cur_pdga_rank', 'cur_rating', 'pdga_no'], ascending=[True, True, False, True], ignore_index=True)
 
-    cols = ["udisc_name","pdga_no","cur_rating","udisc_rank","udisc_index","pdga_rank","events_rating","avg_elite_finish","podiums_count","topten_count"]
+    cols = ["udisc_name","pdga_no","cur_rating","cur_udisc_rank","cur_udisc_index","cur_pdga_rank"]
     final_df = total[cols]
 
     return final_df
 
-if __name__ == "__main__":
-    print("Enter year you want player finishes from: ")
-    year = 2022
-    min_rating = 990
-    data_dir = './data/players'
-    if not os.path.exists(data_dir):
-        os.makedirs(data_dir)
-    print(f"Gathering {year}'s data...")
-
-    if not os.path.isfile(f"{data_dir}/pdga_{year}_{min_rating}.csv") or ('rerun' in sys.argv):
-        print("generate_player_list...")
-        current = generate_player_list(min_rating)
-
-        print(f"generate_player_finishes: {year}...")
-        # current = generate_player_finishes(current, year)
-        current.to_csv(f"{data_dir}/pdga_{year}_{min_rating}.csv", index=False)
-
+def run(min_rating:int=990, save=False):
+    print("generate_player_list...")
+    current = generate_player_list(min_rating)
     print("generate_pdga_rankings...")
     pdga_rankings = generate_pdga_rankings()
 
@@ -195,8 +177,20 @@ if __name__ == "__main__":
     udisc = generate_udisc_rankings()
 
     print("merge_dfs...")
-    current = pd.read_csv(f"{data_dir}/pdga_{year}_{min_rating}.csv")
     final = merge_dfs(current, pdga_rankings, udisc)
     
-    print("sending to your data/ folder")
-    final.to_csv(f"{data_dir}/players_{year}_{min_rating}.csv", index=False)
+    # calculate cost using exponential decay
+    final['cur_price'] = cost.calc_cost(final['cur_udisc_index'].fillna(0), decay_rate=0.0175)
+    final['cur_price'] = final['cur_price'].astype(int)
+    
+    if save:
+        print("sending to your data/ folder")
+        final.to_csv(f"./data/players_{min_rating}.csv", index=False)
+
+    return final
+
+if __name__ == "__main__":
+    print("Enter year you want player finishes from: ")
+
+    final = run(save=False)
+    

@@ -4,3 +4,4 @@ unidecode
 lxml
 bs4
 selenium
+google-api-python-clientgspread
