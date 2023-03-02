@@ -2,3 +2,5 @@ requests
 pandas
 unidecode
 lxml
+bs4
+selenium

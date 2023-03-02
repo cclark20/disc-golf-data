@@ -1,161 +1,180 @@
+import os
+import sys
 import requests
 import pandas as pd
 import unidecode
+from bs4 import BeautifulSoup
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+import time
+from datetime import datetime
+from tqdm import tqdm
 pd.options.mode.chained_assignment = None  # default='warn'
 
-def generate_player_list(min_rating = 1005):
+def get_udisc_name(name: str) -> str:
+    '''
+    input is name as it is in column
+    function opens the players udisc profile (if they have one) and returns the name udsic gives them.
+    if they don't have a profile, it returns the name that was passed in
+
+    The purpose is to get the names udisc uses, so that we can join on name.
+    They don't provide pdga number in the world rankings, so we must join on name.
+
+    The issue was that names could differ from pdga to udisc.
+    Ex. Richard Wysocki (pdga) & Ricky Wysocki (udisc)
+    '''
+    lname = ''.join(name.split()).lower()
+    URL = f"https://udisclive.com/players/{lname}"
+    service = Service('./chromedriver')
+    driver = webdriver.Chrome(service=service)
+    driver.get(URL)
+    time.sleep(5)
+    html = driver.page_source
+
+    soup = BeautifulSoup(html, 'html.parser')
+    try:
+        udisc_name = soup.select('h1')[0].text # the name is the only h1 element
+        return udisc_name
+    except IndexError as e:
+        print(f"{name}: {e}")
+        return name
+
+def generate_player_list(min_rating: int) -> pd.DataFrame:
+    # generate empty df with structure of incoming pdga tables (to concat to)
     pdga = pd.DataFrame(columns = ['Name', 'PDGA #', 'Rating', 'Class', 'City', 'State/Prov', 'Country', 'Membership Status'])
 
-    for i in list(range(50)):
-        URL = f"https://www.pdga.com/players?FirstName=&LastName=&PDGANum=&Status=Current&Gender=M&Class=P&MemberType=All&City=&StateProv=All&Country=All&Country_1=All&UpdateDate=&order=Rating_1&sort=desc&page={i}"
+    tic = datetime.now()
+    print(f'start: {tic}')
+    page_num = 0
+    while True:
+        # get page_num of pdga players (active, M, sorted by rating)
+        URL = f"https://www.pdga.com/players?FirstName=&LastName=&PDGANum=&Status=Current&Gender=M&Class=P&MemberType=All&City=&StateProv=All&Country=All&Country_1=All&UpdateDate=&order=Rating_1&sort=desc&page={page_num}"
         page = requests.get(URL)
-        dfs = pd.read_html(page.text)
-        results = dfs[0]
-        
-        pdga = pdga.append(results, ignore_index=True)
+        try:
+            dfs = pd.read_html(page.text, flavor='lxml')
+        except ValueError as e:
+            print(page_num)
+            print(e)
 
-        if pdga.iloc[-1]['Rating'] <= min_rating:
+        results = dfs[0]
+
+        pdga = pd.concat([pdga, results], ignore_index=True)
+        # check if last player's rating is below the minimum
+        if pdga.iloc[-1]['Rating'] < min_rating:
+            # remove players below the min
+            pdga = pdga[pdga['Rating'] >= min_rating].reset_index(drop=True)
             break
-    
-    pdga = pdga.drop(columns = ['Class','City','Membership Status'])
+
+        # load next page
+        page_num += 1
+    toc = datetime.now()
+    print(f'end: {toc}')
+    diff = toc - tic
+    print(f'Time elapsed: {diff}')
+
+    # formatting
+    pdga = pdga.drop(columns = ['Class','City','State/Prov','Membership Status'])
     pdga['Name'] = pdga['Name'].apply(unidecode.unidecode)
+    pdga.columns = pdga.columns.str.lower()
+    pdga.rename(columns={"pdga #": 'pdga_no'}, inplace=True)
+    pdga.rename(columns={"rating": 'cur_rating'}, inplace=True)
+
+    # get udisc_name for later joins
+    tic = datetime.now()
+    print(f'start: {tic}')
+    for i in tqdm(range(len(pdga))):
+        udisc_name = get_udisc_name(pdga['name'][i])
+        pdga.loc[i, 'udisc_name'] = udisc_name
+    toc = datetime.now()
+    print(f'end: {toc}')
+    diff = toc - tic
+    print(f'Time elapsed: {diff}')
+
     return pdga
 
-def generate_player_finishes(players_df, year=2021):
-    year = year
-    players_stats = players_df
-
-    for i in range(len(players_stats)):
-        try:
-            URL = f"https://www.pdga.com/player/{players_stats['PDGA #'][i]}/stats/{year}"
-            page = requests.get(URL)
-            dfs = pd.read_html(page.text)
-            player = dfs[1]
-        except:
-            continue
-        try:
-            # only DGPT, Majors, and no silver series
-            # player = player.drop(columns = ["Points", "Prize", "Dates"])
-            player = player[(player["Tournament"].str.contains("DGPT")) |
-                            (player["Tier"] == "M") |
-                            (player["Tier"] == "XM")]
-            player = player[(player["Tournament"].str.contains("Silver Series") == False) &
-                            (player["Tournament"].str.contains("Match Play") == False) &
-                            (player["Tournament"].str.contains("DGPT Championship") == False)].reset_index(drop=True)
-
-            for m in range(len(player["Tournament"])):
-                if player["Tournament"][m] in players_stats:
-                    players_stats.at[i, player["Tournament"][m]] = player["Place"][m]
-                else:
-                    players_stats[player["Tournament"][m]] = None
-                    players_stats.at[i, player["Tournament"][m]] = player["Place"][m]
-        except:
-            continue
-
-    # remove non US tournaments
-    players_2 = players_stats.dropna(axis=1, thresh=5).reset_index(drop=True)
-
-    # add descriptive stats
-    players_2['avg_finish'] = players_2.iloc[:, 5:19].mean(axis=1).round(2)
-    players_2['best_finish'] = players_2.iloc[:, 5:19].min(axis=1)
-    players_2['worst_finish'] = players_2.iloc[:, 5:19].max(axis=1)
-    players_2['sd'] = players_2.iloc[:, 5:19].std(axis=1).round(2)
-    players_2['amt_played'] = players_2.iloc[:, 5:19].count(axis=1)
-
-    colnames = ["Name", "PDGA #", "Rating", "Country", "avg_finish", "best_finish", "worst_finish", "sd", "amt_played"]
-    players_2 = players_2[colnames]
-    players_2.rename(columns={"PDGA #": 'pdga_no'}, inplace=True)
-    return players_2
 
 # function to get pdga world rankings
 def generate_pdga_rankings():
+    # get pdga tour rankings as a pd dataframe
     URL = "https://www.pdga.com/united-states-tour-ranking-open"
     page = requests.get(URL)
-    dfs = pd.read_html(page.text)
-
+    dfs = pd.read_html(page.text, flavor='lxml')
     players = dfs[0].iloc[::2]
-    players.columns= players.columns.str.lower()
-    players['#'] = players['#'].astype(int)
-    players['pdga_no'] = players['player'].str.split('#').str[-1].astype(int)
-    players['Name'] = players['player'].str.split('.').str[0].str[:-2]
-    players['Name'] = players['Name'].apply(unidecode.unidecode)
-    players['events_rating'] = players['rating'].str.split(" ").str[1]
-    players['avg_elite_result'] = players['elite'].str.split(" ").str[1]
-    players['wins_count'] = players['wins'].str.split(" ").str[1]
-    players['podiums_count'] = players['podium'].str.split(" ").str[1]
-    players['topten_count'] = players['top 10'].str.split(" ").str[1]
 
-    colnames = ["Name", "pdga_no", "events_rating", "avg_elite_result", "wins_count", "podiums_count", "topten_count", "avg"]
+    # formatting
+    players.columns= players.columns.str.lower()
+    players['pdga_rank'] = players['#'].str.split().str[0].astype(int)
+    players['pdga_no'] = players['player'].str.split('#').str[-1].astype(int)
+    players['name'] = players['player'].str.split('.').str[0].str[:-2]
+    players['name'] = players['name'].apply(unidecode.unidecode)
+    players['events_rating'] = players['rating'].str.split(" ").str[1]
+    players['avg_elite_finish'] = players['elite'].str.split(" ").str[1]
+    players['wins_count'] = players['wins'].str.split(" ").str[1].replace('·', 0).astype(int)
+    players['podiums_count'] = players['podium'].str.split(" ").str[1].replace('·', 0).astype(int)
+    players['topten_count'] = players['top 10'].str.split(" ").str[1].replace('·', 0).astype(int)
+
+    colnames = ["pdga_no", "name", 'pdga_rank', "events_rating", "avg_elite_finish", "wins_count", "podiums_count", "topten_count"]
     players = players[colnames]
     return players
 
 # udisc rankings
 def generate_udisc_rankings():
+    # get udisc world rankings as a pandas df
     URL = "https://udisclive.com/world-rankings/mpo"
     page = requests.get(URL)
-    udisc_dfs = pd.read_html(page.text)
-
+    udisc_dfs = pd.read_html(page.text, flavor='lxml')
     udisc = udisc_dfs[0]
-    udisc.columns = udisc.columns.str.lower()
-    udisc.rename(columns={"dominance index": "index", "playerclick rows to compare players": "player"}, inplace=True)
-    udisc['rank'] = udisc['#'].str.split(' ').str[0].str.extract('(\d+)', expand=False).astype(int)
-    udisc['index'] = udisc['index'].str.split(' ').str[0].astype(float)
-    udisc['Name'] = udisc['player']
-    udisc['Name'] = udisc['Name'].apply(unidecode.unidecode)
 
-    udisc = udisc.iloc[:, 2:]
+    # formatting
+    udisc.columns = udisc.columns.str.lower()
+    udisc.rename(columns={"dominance index": "udisc_index", "playerclick rows to compare players": "name"}, inplace=True)
+    udisc['udisc_rank'] = udisc['#'].str.split(' ').str[0].str.extract('(\d+)', expand=False).astype(int)
+    udisc['udisc_index'] = udisc['udisc_index'].str.split(' ').str[0].astype(float)
+    udisc['name'] = udisc['name'].apply(unidecode.unidecode)
+
+    colnames = ['name', 'udisc_index', 'udisc_rank']
+    udisc = udisc[colnames]
     return udisc
 
 # join
 def merge_dfs(prev_year, pdga, udisc):
-    players_2 = prev_year
-    pdga_rankings = pdga
-    udisc=udisc
+    pdga_merged = prev_year.merge(pdga, on=['pdga_no'], how='left')
+    pdga_merged = pdga_merged.rename(columns={'name_x': 'name'})
+    
+    total = pdga_merged.merge(udisc, left_on="udisc_name", right_on='name', how='left')
+    total = total.sort_values(by=['udisc_rank', 'pdga_rank', 'pdga_no'])
 
-    pdga_merged = players_2.merge(pdga_rankings, on=['pdga_no'], how='left')
-    pdga_merged.rename(columns={"Name_x":"Name"}, inplace=True)
-
-    pdga_merged.replace(["Richard Wysocki","Eagle Wynne McMahon","Nathan Sexton","Benjamin Callaway"], 
-                        ["Ricky Wysocki","Eagle McMahon","Nate Sexton","Ben Callaway"], inplace=True)
-
-    total = pdga_merged.merge(udisc, on="Name", how='right')
-    total = total.sort_values(by=['rank', 'avg', 'Rating', 'pdga_no'])
-
-    bins = [0,4,9,19,100]
-    labels = [4,3,2,1]
-    total['tier'] = pd.cut(total['index'], bins=bins, labels=labels)
-
-    cols = ["Name","pdga_no","tier","Rating","index","avg","avg_finish","amt_played","best_finish","worst_finish","sd","podiums_count","topten_count"]
+    cols = ["udisc_name","pdga_no","cur_rating","udisc_rank","udisc_index","pdga_rank","avg_elite_finish","podiums_count","topten_count"]
     final_df = total[cols]
-    final_df.rename(columns={"index":"udisc_index","avg":"pdga_rank","Rating":"current_rating"}, inplace=True)
 
-    final_df['amt_played'] = final_df['amt_played'].fillna(0).astype(int)
-    #anyone without pdga number is rated below 1000, which we dont want
-    final_df = final_df[final_df['pdga_no'].notna()]
-    final_df['pdga_no'] = final_df['pdga_no'].astype(int)
     return final_df
 
 if __name__ == "__main__":
     print("Enter year you want player finishes from: ")
-    year = int(input())
+    year = 2022
+    min_rating = 990
+    data_dir = './data/players'
+    if not os.path.exists(data_dir):
+        os.makedirs(data_dir)
     print(f"Gathering {year}'s data...")
 
-    print("getting current top golfers...")
-    current = generate_player_list(1000)
+    if not os.path.isfile(f"{data_dir}/pdga_{year}_{min_rating}.csv") or ('rerun' in sys.argv):
+        print("generate_player_list...")
+        current = generate_player_list(min_rating)
 
-    print(f"getting player finishes from {year}...")
-    finishes = generate_player_finishes(current, year)
+        print(f"generate_player_finishes: {year}...")
+        # current = generate_player_finishes(current, year)
+        current.to_csv(f"{data_dir}/pdga_{year}_{min_rating}.csv", index=False)
 
-    print("getting pdga's rankings...")
+    print("generate_pdga_rankings...")
     pdga_rankings = generate_pdga_rankings()
 
-    print("getting udisc world rankings")
+    print("generate_udisc_rankings...")
     udisc = generate_udisc_rankings()
 
-    print("joining the data...")
-    final = merge_dfs(finishes, pdga_rankings, udisc)
-
+    print("merge_dfs...")
+    current = pd.read_csv(f"{data_dir}/pdga_{year}_{min_rating}.csv")
+    final = merge_dfs(current, pdga_rankings, udisc)
+    
     print("sending to your data/ folder")
-    current.to_csv("data/players/top_golfers.csv", index=False)
-    finishes.to_csv(f"data/players/player_finishes_{year}.csv", index=False)
-    final.to_csv(f"data/players/pdga_udisc_{year}_joined.csv", index=False)
+    final.to_csv(f"{data_dir}/players_{year}_{min_rating}.csv", index=False)
