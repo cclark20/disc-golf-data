@@ -20,12 +20,6 @@ def command_args():
                         required='--tournament' in sys.argv,
                         help='udisc name of tournament (from udisclive url)'
                         )
-    parser.add_argument('--rounds',
-                        '-r',
-                        type=int,
-                        required='--tournament' in sys.argv,
-                        help='number of completed rounds'
-                        )
     parser.add_argument('--update_gsheet',
                         action='store_true',
                         help='include if udpating google sheet')

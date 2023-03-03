@@ -58,7 +58,7 @@ def get_sheet_df(gspread_client, sheet:str, worksheet:str) -> pd.DataFrame:
     worksheet = sheet.worksheet(worksheet)
     return pd.DataFrame(worksheet.get_all_records())
 
-def replace_sheet(gspread_client, sheet:str, worksheet:str, data):
+def replace_sheet(gspread_client, sheet:str, worksheet:str, data:pd.DataFrame):
     sheet = gspread_client.open(sheet)
     worksheet = sheet.worksheet(worksheet)
     worksheet.clear()

@@ -16,9 +16,9 @@ import time
 import re
 
 def extract_int(string):
-  if string == 'E':
+  if string == 'E': # even
     return int(0)
-  if string == '(P)':
+  if string == '(P)': # penalties added
     return int(1000)
   # find integer (with + or -) in string. if no digit, return None
   match = re.search(r'[+-]?\d+', string)
@@ -59,7 +59,6 @@ def get_udisc_html(udisc_id: str = 'usdgc2022', round: int = 1):
   driver.get(URL)
   time.sleep(5)
   html = driver.page_source
-
   soup = BeautifulSoup(html, 'html.parser')
   return soup
 
@@ -75,7 +74,7 @@ def get_registered_players(soup) -> pd.DataFrame:
       'style': 'display: inline-flex; align-items: center; text-align: center; width: 260px; font-size: 20px; justify-content: flex-start; margin-bottom: 15px;'
     })
   # get registered players in events_result format
-  names = [div.get_text() for div in divs]
+  names = [unidecode.unidecode(div.get_text()) for div in divs]
 
   # create df exactly as rest of script will expect, even though will be empty
   df = pd.DataFrame({
@@ -110,7 +109,7 @@ def get_round_table(soup) -> pd.DataFrame:
 
   # stop if tournamnet hasnt started
   if not divs:
-    raise Exception('tournament has not started')
+    return None
   
   # generate table
   ## initiate lists for data
@@ -175,23 +174,41 @@ def compute_scores(row, pars):
   return row.drop('hole_scores')
 
 
-def run(event_id: str, n_rounds: int, save:bool=True):
+def run(event_id: str, save:bool=True):
   dfs = []
   print(f'getting {event_id}...')
-  for round in range(1, n_rounds + 1):
+  round = 1
+  while True:
+  # for round in range(1, n_rounds + 1):
     html = get_udisc_html(event_id, round)
 
+    # will return None if tournament hasn't started
+    round_results = get_round_table(html)
+
     # try to get round scores, custom exception will send to except, if tournamnet hasn't started
-    try:
-      round_results = get_round_table(html)
+    if round_results is not None:
       print(f'getting round: {round}')
       round_pars = get_round_pars(html)
-      tallies = round_results.apply(compute_scores, axis=1, pars=round_pars)
+      try:
+        tallies = round_results.apply(compute_scores, axis=1, pars=round_pars)
+      except:
+        print('either round hasnt happened yet or a playoff. stopping the loop')
+        break
       tallies['round'] = round
       tallies['tournament'] = event_id
+
+      # break while loop if new tallies are same as last round (finished)
+      if round > 1:
+        last_round = dfs[-1].drop(columns=['round'])
+        if tallies.drop(columns='round').equals(last_round):
+          print(f'nevermind.. round {round-1} was the final round')
+          break
+      
       print(tallies)
       dfs.append(tallies)
-    except:
+      round += 1
+    
+    else: 
       print('getting registered players')
       reg_players = get_registered_players(html)
       if len(reg_players) == 0:
@@ -199,7 +216,6 @@ def run(event_id: str, n_rounds: int, save:bool=True):
       
       reg_players['tournament']=event_id
       dfs.append(reg_players)
-      print(reg_players)
       break
 
   tournament_df = pd.concat(dfs)
@@ -222,7 +238,6 @@ def run(event_id: str, n_rounds: int, save:bool=True):
   ]
   totals = totals[cols]
 
-  print(totals)
   if save:
     totals.to_csv(f'./data/{event_id}_results.csv', index=False)
 
