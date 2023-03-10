@@ -15,66 +15,77 @@ def main(args):
         players_df = players.run()
         print(players_df.head())
 
-        # get previous players list
-        sheet='fantasy-disc-golf-2023'
-        worksheet='players'
-        client = gdrive.auth_gspread()
-        df = gdrive.get_sheet_df(client, sheet, worksheet)
-        print(df.head())
-        
-        # update
-        merged = pd.merge(players_df, df, on=['udisc_name'], how='left')
-        players_df['init_price'] = merged['init_price'].fillna(5).astype(int)
-        players_df['ch_price']  = players_df['cur_price'] - players_df['init_price']
-        players_df['updated'] = str(datetime.date.today())
-        players_df = players_df.replace(np.nan, None)
-        print(players_df.tail())
-        print(players_df.describe())
+        if args.connected:
+            # get previous players list
+            sheet='fantasy-disc-golf-2023'
+            worksheet='players_DEV'
+            client = gdrive.auth_gspread()
+            df = gdrive.get_sheet_df(client, sheet, worksheet)
+            print(df.head())
+            
+            # update
+            merged = pd.merge(players_df, df, on=['udisc_name'], how='left')
+            players_df['init_price'] = merged['init_price'].fillna(5).astype(int)
+            players_df['ch_price']  = players_df['cur_price'] - players_df['init_price']
+            players_df['updated'] = str(datetime.date.today())
+            players_df = players_df.replace(np.nan, None)
+            print(players_df.tail())
+            print(players_df.describe())
 
-        # replace google worksheet
-        if args.update_gsheet:
-            gdrive.replace_sheet(client, sheet, worksheet, data=players_df)
+            # replace google worksheet
+            if args.update_gsheet:
+                gdrive.replace_sheet(client, sheet, worksheet, data=players_df)
 
         
     if args.tournament:
         totals = udisc_live.run(args.tid, False)
 
-        # bring in gsheet data
-        sheet='fantasy-disc-golf-2023'
-        worksheet = 'event_results_DEV'
-        client = gdrive.auth_gspread()
+        if args.connected:
+            # bring in gsheet data
+            sheet='fantasy-disc-golf-2023'
+            worksheet = 'event_results'
+            client = gdrive.auth_gspread()
 
-        # get data (with formula results) from gsheet
-        df = gdrive.get_sheet_df(client, sheet, worksheet)
-        df = df[df['keep']==1].drop(columns=['keep'])
-        df['points'] = df['points'].replace('#DIV/0!', None)
-        df = df.drop(columns=['season', 'start', 'style'])
-        print('\nhead of event_results sheet')
-        print(df.head())
+            # get data (with formula results) from gsheet
+            df = gdrive.get_sheet_df(client, sheet, worksheet)
+            df = df[df['keep']==1].drop(columns=['keep'])
+            df['points'] = df['points'].replace('#DIV/0!', None)
+            df = df.drop(columns=['season', 'start', 'style'])
+            print('\nhead of event_results sheet')
+            print(df.head())
+            # check if tourn exists in sheet 
+            match_col = 'lookup'
+            matching_rows = df[ df[ match_col].isin(totals[match_col]) ]
+            if not matching_rows.empty:
+                print('\nalready in sheet')
+                print('updating whats there...')
+                # replace rows with matches on lookup with new data
+                for index, row in matching_rows.iterrows():
+                    df.loc[index, totals.columns] =  totals.loc[totals[match_col] == row[match_col]].iloc[0]  
+                df = projection.run(df)
 
-        # check if tourn exists in sheet 
-        match_col = 'lookup'
-        matching_rows = df[ df[ match_col].isin(totals[match_col]) ]
-        if not matching_rows.empty:
-            print('\nalready in sheet')
-            print('updating whats there...')
-            # replace rows with matches on lookup with new data
-            for index, row in matching_rows.iterrows():
-                df.loc[index, totals.columns] =  totals.loc[totals[match_col] == row[match_col]].iloc[0]  
-            df = projection.run(df)
+            else:
+                print('\nnew tournament. adding to sheet')
+                df = pd.concat([df, totals])
 
-        else:
-            print('\nnew tournament. adding to sheet')
-            df = pd.concat([df, totals])
+                df = projection.run(df)
 
-            df = projection.run(df)
+            df = df.sort_values(by=['tournament', 'place','projection', 'name'],
+                                ascending = [True, True, False, True])
+            df = df.replace(np.nan, None)
+            print('\nfinal df:')
+            print(df)
+            print(df[df['tournament']=='waco2023'])
 
-        print('\nfinal df:')
-        print(df)
-        # replace google worksheet
-        if args.update_gsheet:
-            data_worksheet = 'event_results_data_DEV'
-            gdrive.replace_sheet(client, sheet, data_worksheet, data=df)   
+            # save locally
+            if args.local_save:
+                save_path = './data/event_results.csv'
+                df.to_csv(save_path, index=False)
+
+            # replace google worksheet
+            if args.update_gsheet:
+                data_worksheet = 'event_results_data'
+                gdrive.replace_sheet(client, sheet, data_worksheet, data=df)   
 
 
 

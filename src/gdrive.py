@@ -3,6 +3,7 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 import gspread
 import pandas as pd
+import numpy as np
 
 def authenticate():
     # Set the path to the credentials file for your Google API project
@@ -61,5 +62,11 @@ def get_sheet_df(gspread_client, sheet:str, worksheet:str) -> pd.DataFrame:
 def replace_sheet(gspread_client, sheet:str, worksheet:str, data:pd.DataFrame):
     sheet = gspread_client.open(sheet)
     worksheet = sheet.worksheet(worksheet)
+
+    # typing
+    values = data.values.tolist()
+    values = [ [int(val) if isinstance(val, np.int64) else val for val in row] for row in values]
+    values = [ [round(val,2) if isinstance(val, float) else val for val in row] for row in values]
+
     worksheet.clear()
-    worksheet.update([data.columns.values.tolist()] + data.values.tolist())
+    worksheet.update([data.columns.values.tolist()] + values)

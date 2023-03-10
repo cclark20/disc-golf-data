@@ -37,7 +37,7 @@ def count_scores(pars: int, scores: int) -> dict:
     'bogeys': 0,
     'doubles+': 0
   }
-  for i in range(len(pars)):
+  for i in range(len(scores)):
     if scores[i] == 1:
       results['aces'] += 1
     elif scores[i] <= pars[i] - 2:
@@ -57,7 +57,7 @@ def get_udisc_html(udisc_id: str = 'usdgc2022', round: int = 1):
   URL = f"https://udisclive.com/live/{udisc_id}/{round}?t=scores&d=MPO"
   driver = webdriver.Chrome(options=chrome_options)
   driver.get(URL)
-  time.sleep(5)
+  time.sleep(8)
   html = driver.page_source
   soup = BeautifulSoup(html, 'html.parser')
   return soup
@@ -107,7 +107,17 @@ def get_round_table(soup) -> pd.DataFrame:
     })
   divs = divs + divs2
 
-  # stop if tournamnet hasnt started
+  check = soup.find_all(
+    'div',
+    attrs={
+    'style':
+    "background: rgb(var(--color-bg)); padding: 30px;"
+    }
+  )
+  if check:
+    return "check back soon"
+
+  # stop if round hasnt started
   if not divs:
     return None
   
@@ -122,20 +132,18 @@ def get_round_table(soup) -> pd.DataFrame:
   # loop through each div (a row) and get cells we need.
   for i in range(len(divs)):
     cells = divs[i].find_all('div')
-    cells = [cell for cell in cells if not cell.find('div')
-             ]  # remove cells that have more than one div
-    cells = [cell for cell in cells
-             if not cell.find('i')]  # remove cells that have an i element
+    cells = [cell for cell in cells if not cell.find('div')]  # remove cells that have more than one div
+    cells = [cell for cell in cells if not cell.find('i')]  # remove cells that have an i element
 
     # get text based on place
     name = unidecode.unidecode(cells[1].get_text())
     place = extract_int(cells[0].get_text())
     total = extract_int(cells[2].get_text())
     round_score = extract_int(cells[4].get_text())
-    hole_scores = [extract_int(cell.get_text()) for cell in cells[5:23]]
+    hole_scores = [extract_int(cell.get_text()) for cell in cells[5:23] if extract_int(cell.get_text()) is not None]
 
-    if place == None:
-      continue
+    # if place == None:
+    #   continue
 
     # add to lists
     names.append(name)
@@ -179,7 +187,7 @@ def run(event_id: str, save:bool=True):
   print(f'getting {event_id}...')
   round = 1
   while True:
-  # for round in range(1, n_rounds + 1):
+    # for round in range(1, n_rounds + 1):
     html = get_udisc_html(event_id, round)
 
     # will return None if tournament hasn't started
@@ -197,6 +205,14 @@ def run(event_id: str, save:bool=True):
       tallies['round'] = round
       tallies['tournament'] = event_id
 
+      # break loop if df is empty (round hasn't started)
+      if tallies.empty:
+        if round == 1:
+          print('not supported to get info before round 1 starts')
+          exit()
+        print('round hasnt started')
+        break
+
       # break while loop if new tallies are same as last round (finished)
       if round > 1:
         last_round = dfs[-1].drop(columns=['round'])
@@ -207,6 +223,9 @@ def run(event_id: str, save:bool=True):
       print(tallies)
       dfs.append(tallies)
       round += 1
+
+    elif round_results == "check back soon":
+      break
     
     else: 
       print('getting registered players')

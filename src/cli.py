@@ -23,6 +23,12 @@ def command_args():
     parser.add_argument('--update_gsheet',
                         action='store_true',
                         help='include if udpating google sheet')
+    parser.add_argument('--local_save',
+                        action='store_true',
+                        help='include to save locally.')
+    parser.add_argument('--connected',
+                        action='store_true',
+                        help='include to bring in connected google sheet data.')
     args = parser.parse_args()
 
     if not args.players and not args.tournament:
