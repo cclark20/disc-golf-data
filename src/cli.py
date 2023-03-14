@@ -3,6 +3,11 @@ import sys
 
 def command_args():
     parser = argparse.ArgumentParser('cli tool for dg scraper.')
+    parser.add_argument('--env',
+                        type=str,
+                        default='dev',
+                        choices=['dev','prod']
+                        )
     parser.add_argument('--players',
                         action='store_true',
                         help='flag to run update player list'
@@ -15,6 +20,10 @@ def command_args():
     parser.add_argument('--tournament',
                         action='store_true',
                         help='flag to get tournamnet results'
+                        )
+    parser.add_argument('--live',
+                        action='store_true',
+                        help='include to run udisc scraper every 5 mins until 8pm est'
                         )
     parser.add_argument('--tid',
                         required='--tournament' in sys.argv,
@@ -31,7 +40,11 @@ def command_args():
                         help='include to bring in connected google sheet data.')
     args = parser.parse_args()
 
-    if not args.players and not args.tournament:
+    if not args.players and not args.tournament and not args.live_tournament:
         raise Exception('must enter either --players or --tournament')
+    if args.env == 'dev':
+        args.env_suffix = '_DEV'
+    else:
+        args.env_suffix = ''
 
     return args

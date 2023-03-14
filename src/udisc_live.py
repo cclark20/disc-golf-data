@@ -40,15 +40,15 @@ def count_scores(pars: int, scores: int) -> dict:
   for i in range(len(scores)):
     if scores[i] == 1:
       results['aces'] += 1
-    elif scores[i] <= pars[i] - 2:
+    if scores[i] <= pars[i] - 2:
       results['eagles+'] += 1
-    elif scores[i] == pars[i] - 1:
+    if scores[i] == pars[i] - 1:
       results['birdies'] += 1
-    elif scores[i] == pars[i]:
+    if scores[i] == pars[i]:
       results['pars'] += 1
-    elif scores[i] == pars[i] + 1:
+    if scores[i] == pars[i] + 1:
       results['bogeys'] += 1
-    elif scores[i] >= pars[i] + 2:
+    if scores[i] >= pars[i] + 2:
       results['doubles+'] += 1
   return results
 
