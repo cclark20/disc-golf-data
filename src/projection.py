@@ -9,13 +9,16 @@ def run(df:pd.DataFrame, points_col:str='points'):
     '''
     # get averages
     df_filt = df[df['place'] != ''].dropna(subset=['total','place','points']) # remove future tournaments
+    # remove 2021 from projection
+    mask = df_filt.tournament.str.contains('2021')
+    df_filt = df_filt[~mask]
     # get avg for everyone
     avg_by_name = df_filt.groupby('name')[points_col].mean()
     df_filt['avg'] = df_filt['name'].map(avg_by_name)
     # calculate z-score for each points amt
     df_filt['z_score'] = df_filt.groupby('name',group_keys=False)[points_col].apply(lambda x: np.abs((x - x.mean()) / x.std()))
     # remove rows with z-score greater than 1.5 (threshold for outliers) or points higher than avg
-    df_filt = df_filt[(df_filt['points'] > df_filt['avg']) | (df_filt['z_score'] <= 1.5)]
+    df_filt = df_filt[(df_filt['points'] > df_filt['avg']) | (df_filt['z_score'] <= 2.5)]
     
     # get avg of final filtered df
     avg = df_filt.groupby('name')[points_col].mean().reset_index()

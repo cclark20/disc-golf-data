@@ -187,6 +187,8 @@ def run(event_id: str, save:bool=True):
   print(f'getting {event_id}...')
   round = 1
   while True:
+    if round == 4:
+      break
     # for round in range(1, n_rounds + 1):
     html = get_udisc_html(event_id, round)
 

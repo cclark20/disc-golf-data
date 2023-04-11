@@ -49,7 +49,8 @@ def main(args):
 
         
     if args.tournament:
-        stop_time = datetime.datetime.now().replace(hour=20,minute=0,second=0) # stop at 8pm EST
+        end_time = 8 
+        stop_time = datetime.datetime.now().replace(hour=12+end_time,minute=0,second=0) 
         while datetime.datetime.now() < stop_time:
             totals = udisc_live.run(args.tid, False)
 
