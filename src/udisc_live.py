@@ -185,7 +185,7 @@ def compute_scores(row, pars):
   return row.drop('hole_scores')
 
 
-def run(event_id: str, curr_round: int, save:bool=True):
+def run(event_id: str, curr_round, save:bool=True):
   dfs = []
   print(f'getting {event_id}...')
   round = 1

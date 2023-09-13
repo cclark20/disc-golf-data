@@ -47,6 +47,8 @@ def command_args():
         raise Exception('must enter either --players or --tournament')
     if args.live and not args.curr_round:
         raise Exception('must provide curr round if running live scores')
+    if not args.live:
+        args.curr_round = 1
     if args.env == 'dev':
         args.env_suffix = '_DEV'
     else:
