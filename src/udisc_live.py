@@ -57,7 +57,7 @@ def get_udisc_html(udisc_id: str = 'usdgc2022', round: int = 1):
   URL = f"https://udisclive.com/live/{udisc_id}/{round}?t=scores&d=MPO"
   driver = webdriver.Chrome(options=chrome_options)
   driver.get(URL)
-  time.sleep(8)
+  time.sleep(15)
   html = driver.page_source
   soup = BeautifulSoup(html, 'html.parser')
   return soup
@@ -134,7 +134,7 @@ def get_round_table(soup) -> pd.DataFrame:
     cells = divs[i].find_all('div')
     cells = [cell for cell in cells if not cell.find('div')]  # remove cells that have more than one div
     cells = [cell for cell in cells if not cell.find('i')]  # remove cells that have an i element
-
+    # import pdb; pdb.set_trace()
     # get text based on place
     name = unidecode.unidecode(cells[1].get_text())
     place = extract_int(cells[0].get_text())
@@ -142,8 +142,11 @@ def get_round_table(soup) -> pd.DataFrame:
     round_score = extract_int(cells[4].get_text())
     hole_scores = [extract_int(cell.get_text()) for cell in cells[5:23] if extract_int(cell.get_text()) is not None]
 
-    # if place == None:
-    #   continue
+    if name == 'A' or name == 'B':
+      name = unidecode.unidecode(cells[1+1].get_text())
+      total = extract_int(cells[2+1].get_text())
+      round_score = extract_int(cells[4+1].get_text())
+      hole_scores = [extract_int(cell.get_text()) for cell in cells[5+1:23+1] if extract_int(cell.get_text()) is not None]
 
     # add to lists
     names.append(name)
@@ -182,12 +185,12 @@ def compute_scores(row, pars):
   return row.drop('hole_scores')
 
 
-def run(event_id: str, save:bool=True):
+def run(event_id: str, curr_round: int, save:bool=True):
   dfs = []
   print(f'getting {event_id}...')
   round = 1
   while True:
-    if round == 4:
+    if round == curr_round + 1:
       break
     # for round in range(1, n_rounds + 1):
     html = get_udisc_html(event_id, round)

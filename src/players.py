@@ -124,11 +124,11 @@ def generate_pdga_rankings():
     players['pdga_no'] = players['player'].str.split('#').str[-1].astype(int)
     players['name'] = players['player'].str.split('.').str[0].str[:-2]
     players['name'] = players['name'].apply(unidecode.unidecode)
-    players['events_rating'] = players['rating'].str.split(" ").str[1]
-    players['avg_elite_finish'] = players['elite'].str.split(" ").str[1]
-    players['wins_count'] = players['wins'].str.split(" ").str[1].replace('·', 0).astype(int)
-    players['podiums_count'] = players['podium'].str.split(" ").str[1].replace('·', 0).astype(int)
-    players['topten_count'] = players['top 10'].str.split(" ").str[1].replace('·', 0).astype(int)
+    players['events_rating'] = players['rating'].str.split(" ").str[-1]
+    players['avg_elite_finish'] = players['elite'].str.split(" ").str[-1]
+    players['wins_count'] = players['wins [2x]'].str.split(" ").str[-1].replace('·', 0).astype(int)
+    players['podiums_count'] = players['podium'].str.split(" ").str[-1].replace('·', 0).astype(int)
+    players['topten_count'] = players['top 10'].str.split(" ").str[-1].replace('·', 0).astype(int)
 
     colnames = ["pdga_no", "name", 'cur_pdga_rank', "events_rating", "avg_elite_finish", "wins_count", "podiums_count", "topten_count"]
     players = players[colnames]
@@ -182,6 +182,9 @@ def run(min_rating:int=990, save=False):
     # calculate cost using exponential decay
     final['cur_price'] = cost.calc_cost(final['cur_udisc_index'].fillna(0), decay_rate=0.0175)
     final['cur_price'] = final['cur_price'].astype(int).clip(lower=5)
+
+    # drop duplicates
+    final = final.drop_duplicates(subset='udisc_name', keep='first')
     
     if save:
         print("sending to your data/ folder")

@@ -38,10 +38,15 @@ def command_args():
     parser.add_argument('--connected',
                         action='store_true',
                         help='include to bring in connected google sheet data.')
+    parser.add_argument('--curr_round',
+                        type=int,
+                        required=False)
     args = parser.parse_args()
 
     if not args.players and not args.tournament and not args.live_tournament:
         raise Exception('must enter either --players or --tournament')
+    if args.live and not args.curr_round:
+        raise Exception('must provide curr round if running live scores')
     if args.env == 'dev':
         args.env_suffix = '_DEV'
     else:

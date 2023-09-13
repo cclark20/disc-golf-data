@@ -28,7 +28,7 @@ def main(args):
             # update
             merged = pd.merge(players_df, df, on=['udisc_name'], how='left')
             players_df['prev_price'] = merged['cur_price_y'].fillna(5).astype(int) # get cur price from incoming df
-            players_df['init_price'] = merged['init_price'].fillna(5).astype(int)
+            players_df['init_price'] = merged['init_price'].replace('',np.nan).fillna(5).astype(int)
             players_df['week_ch_price']  = players_df['cur_price'] - players_df['prev_price']
             players_df['ovr_ch_price']  = players_df['cur_price'] - players_df['init_price']
             players_df['updated'] = str(datetime.date.today())
@@ -43,16 +43,20 @@ def main(args):
             print('\nupated player list')
             print(players_df.head(25))
 
+            print(f'\ntop movers:')
+            print(players_df.sort_values('week_ch_price', ascending=False).head(10))
+            print(players_df.sort_values('week_ch_price').head(10))
+
             # replace google worksheet
             if args.update_gsheet:
                 gdrive.replace_sheet(client, sheet, worksheet, data=players_df)
 
         
     if args.tournament:
-        end_time = 8 
+        end_time = 11
         stop_time = datetime.datetime.now().replace(hour=12+end_time,minute=0,second=0) 
         while datetime.datetime.now() < stop_time:
-            totals = udisc_live.run(args.tid, False)
+            totals = udisc_live.run(args.tid, args.curr_round, False)
 
             if args.connected:
                 # bring in gsheet data
@@ -64,7 +68,7 @@ def main(args):
                 df = gdrive.get_sheet_df(client, sheet, worksheet)
                 df = df[df['keep']==1].drop(columns=['keep'])
                 df['points'] = df['points'].replace('#DIV/0!', None)
-                df = df.drop(columns=['season', 'start', 'style', 'current price'])
+                df = df.drop(columns=['season', 'style', 'current price'])
                 print('\nhead of event_results sheet')
                 print(df.head())
                 # remove current tourn so we can replace
@@ -72,16 +76,19 @@ def main(args):
                 df = pd.concat([df, totals])
 
                 # run projections
-                df = projection.run(df)
+                if not args.live:
+                    df = projection.project(df, 'name', 'points', 'start')
 
-                df = df.sort_values(by=['tournament', 'place','projection', 'name'],
-                                    ascending = [True, True, False, True])
+                df.start = pd.to_datetime(df.start)
+                df = df.sort_values(by=['start', 'place','projection', 'name'],
+                                    ascending = [False, True, False, True], na_position='first')
                 df = df.replace(np.nan, None)
                 df['updated'] = str(datetime.date.today())
+                df = df.drop(columns=['start','points'])
                 print('\nfinal df:')
                 print(df)
                 print('\ntournament you ran for:')
-                print(df[df['tournament']==args.tid])
+                print(df[df['tournament']==args.tid].head(25))
 
                 # save locally
                 if args.local_save:
